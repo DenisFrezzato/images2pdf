@@ -11,7 +11,6 @@
   "scripts": {
     "build": "tsc",
     "lint": "tslint --project . -t verbose",
-    "postinstall": "npm run build",
     "precommit": "npm run lint"
   },
   "dependencies": {
@@ -55,5 +54,5 @@
   "bugs": {
     "url": "https://github.com/DenisFrezzato/images2pdf/issues"
   },
-  "homepage": "https://github.com/DenisFrezzato/images2pdf#readme"
+  "homepage": "https://github.com/DenisFrezzato/images2pdf"
 }
