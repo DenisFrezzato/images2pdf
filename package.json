@@ -1,11 +1,18 @@
 {
   "name": "images2pdf",
   "version": "0.1.0",
-  "description": "Create a PDF from images.",
+  "description": "Create a PDF document from a bunch of images.",
+  "keywords": [
+    "comic-book",
+    "pdf",
+    "images"
+  ],
   "main": "src/index.js",
   "scripts": {
     "build": "tsc",
-    "lint": "tslint --project . -t verbose"
+    "lint": "tslint --project . -t verbose",
+    "postinstall": "npm run build",
+    "precommit": "npm run lint"
   },
   "dependencies": {
     "chalk": "^2.4.1",
@@ -30,6 +37,7 @@
     "@types/recursive-readdir": "^2.2.0",
     "@types/sharp": "^0.17.9",
     "@types/yargs": "^11.1.1",
+    "husky": "^0.14.3",
     "prettier": "^1.13.7",
     "tslint": "^5.11.0",
     "tslint-config-prettier": "^1.14.0",
