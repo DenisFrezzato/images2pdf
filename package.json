@@ -1,5 +1,5 @@
 {
-  "name": "images2pdf",
+  "name": "images-to-pdf-book",
   "version": "0.1.0",
   "description": "Create a PDF document from a bunch of images.",
   "keywords": [
