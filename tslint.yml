@@ -1,0 +1,18 @@
+defaultSeverity: error
+
+extends:
+  - tslint:recommended
+  - tslint-sonarts
+  - tslint-immutable
+  - tslint-plugin-prettier
+  - tslint-config-prettier
+
+rules:
+  no-console: false
+  no-null-keyword: true
+  no-any: true
+  no-var-keyword: true
+  prettier: true
+  curly:
+    - true
+    - ignore-same-line
