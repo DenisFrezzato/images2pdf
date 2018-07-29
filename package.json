@@ -8,6 +8,12 @@
     "images"
   ],
   "main": "src/index.js",
+  "bin": {
+    "images-to-pdf-book": "bin/images-to-pdf-book.js"
+  },
+  "engines": {
+    "node": ">=8"
+  },
   "scripts": {
     "build": "tsc",
     "lint": "tslint --project . -t verbose",
@@ -45,7 +51,10 @@
     "tslint-sonarts": "^1.7.0",
     "typescript": "^2.9.2"
   },
-  "author": "Denis Frezzato",
+  "author": {
+    "name": "Denis Frezzato",
+    "url": "https://github.com/DenisFrezzato"
+  },
   "license": "ISC",
   "repository": {
     "type": "git",
