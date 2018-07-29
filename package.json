@@ -7,9 +7,9 @@
     "pdf",
     "images"
   ],
-  "main": "src/index.js",
+  "main": "dist/src/index.js",
   "bin": {
-    "images-to-pdf-book": "bin/images-to-pdf-book.js"
+    "images-to-pdf-book": "dist/bin/images-to-pdf-book.js"
   },
   "engines": {
     "node": ">=8"
