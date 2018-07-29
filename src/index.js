@@ -19,35 +19,16 @@ const PDFDocument = require("pdfkit");
 const ProgressBar = require("progress");
 const recursive = require("recursive-readdir");
 const sharp = require("sharp");
-const yargs = require("yargs");
-const argv = yargs
-    .option('images-directory', {
-    describe: 'provide the images directory',
-})
-    .option('width', {
-    alias: 'w',
-    describe: 'width of targeted device',
-})
-    .option('height', {
-    alias: 'h',
-    describe: 'height of targeted device',
-})
-    .option('output', {
-    alias: 'o',
-    describe: 'output file',
-})
-    .coerce(['w', 'h'], Number)
-    .demandOption(['images-directory', 'w', 'h', 'o']).argv;
 const cpuCount = os.cpus().length;
 const error = chalk_1.default.bold.red;
-function start() {
+function start({ imagesDirectory, width, height, output, }) {
     return __awaiter(this, void 0, void 0, function* () {
         const doc = new PDFDocument({
             autoFirstPage: false,
         });
-        const imagesDir = Path.resolve(argv.imagesDirectory);
-        const output = fs.createWriteStream(Path.resolve(argv.output));
-        doc.pipe(output);
+        const imagesDir = Path.resolve(imagesDirectory);
+        const outputStream = fs.createWriteStream(Path.resolve(output));
+        doc.pipe(outputStream);
         const docSpinner = ora('Creating document...');
         output.on('close', () => {
             docSpinner.succeed();
@@ -67,7 +48,7 @@ function start() {
                 if (err)
                     return reject(err);
                 const name = parentDirName + Path.parse(imagePath).name;
-                const newSize = calculateOutputImageSize(info);
+                const newSize = calculateOutputImageSize(info, { width, height });
                 const resizeAndArchive = sharp(trimmedImageBuffer)
                     .resize(...newSize)
                     .png()
@@ -92,6 +73,7 @@ function start() {
         doc.end();
     });
 }
+exports.default = start;
 function getImages(imagesDir) {
     return __awaiter(this, void 0, void 0, function* () {
         const files = yield recursive(imagesDir);
@@ -103,17 +85,17 @@ function getParentDirName(imagePath) {
         .split('/')
         .pop();
 }
-function calculateOutputImageSize({ width, height }) {
-    const outputRatio = argv.width / argv.height;
-    const imageRatio = width / height;
+function calculateOutputImageSize(imageSize, viewportSize) {
+    const outputRatio = viewportSize.width / viewportSize.height;
+    const imageRatio = imageSize.width / imageSize.height;
     // determs if the image orientation will be portrait or landscape
     // if landscape, fit the image by viewport's height
     const outputImageRatio = imageRatio < outputRatio
-        ? argv.width / argv.height
-        : (argv.width * 2) / argv.height;
+        ? viewportSize.width / viewportSize.height
+        : (viewportSize.width * 2) / viewportSize.height;
     return imageRatio > outputImageRatio
-        ? [argv.width, Math.round(argv.width / imageRatio)]
-        : [Math.round(argv.height * imageRatio), argv.height];
+        ? [viewportSize.width, Math.round(viewportSize.width / imageRatio)]
+        : [Math.round(viewportSize.height * imageRatio), viewportSize.height];
 }
 function sortImagesByName(prev, next) {
     const prevName = prev.name.toLowerCase();
@@ -128,7 +110,6 @@ function addImageToDoc({ buffer, size }, doc) {
     doc.addPage({ size });
     doc.image(buffer, 0, 0, { fit: size });
 }
-start();
 process.on('unhandledRejection', (err) => {
     throw err;
 });

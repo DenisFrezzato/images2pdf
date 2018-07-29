@@ -11,39 +11,27 @@ import * as PDFDocument from 'pdfkit'
 import * as ProgressBar from 'progress'
 import * as recursive from 'recursive-readdir'
 import * as sharp from 'sharp'
-import * as yargs from 'yargs'
+import { Arguments } from 'yargs'
 import { IResizedImage, Size } from './@types'
-
-const argv = yargs
-  .option('images-directory', {
-    describe: 'provide the images directory',
-  })
-  .option('width', {
-    alias: 'w',
-    describe: 'width of targeted device',
-  })
-  .option('height', {
-    alias: 'h',
-    describe: 'height of targeted device',
-  })
-  .option('output', {
-    alias: 'o',
-    describe: 'output file',
-  })
-  .coerce(['w', 'h'], Number)
-  .demandOption(['images-directory', 'w', 'h', 'o']).argv
 
 const cpuCount: number = os.cpus().length
 const error = chalk.bold.red
 
-async function start() {
+export default async function start({
+  imagesDirectory,
+  width,
+  height,
+  output,
+}: Arguments) {
   const doc: PDFKit.PDFDocument = new PDFDocument({
     autoFirstPage: false,
   })
-  const imagesDir: string = Path.resolve(argv.imagesDirectory)
+  const imagesDir: string = Path.resolve(imagesDirectory)
 
-  const output: fs.WriteStream = fs.createWriteStream(Path.resolve(argv.output))
-  doc.pipe(output)
+  const outputStream: fs.WriteStream = fs.createWriteStream(
+    Path.resolve(output),
+  )
+  doc.pipe(outputStream)
 
   const docSpinner = ora('Creating document...')
 
@@ -74,7 +62,7 @@ async function start() {
             if (err) return reject(err)
 
             const name = parentDirName + Path.parse(imagePath).name
-            const newSize = calculateOutputImageSize(info)
+            const newSize = calculateOutputImageSize(info, { width, height })
 
             const resizeAndArchive = sharp(trimmedImageBuffer)
               .resize(...newSize)
@@ -121,20 +109,23 @@ function getParentDirName(imagePath: string): string | undefined {
     .pop()
 }
 
-function calculateOutputImageSize({ width, height }: sharp.OutputInfo): Size {
-  const outputRatio: number = argv.width / argv.height
-  const imageRatio: number = width / height
+function calculateOutputImageSize(
+  imageSize: sharp.OutputInfo,
+  viewportSize: { width: number; height: number },
+): Size {
+  const outputRatio: number = viewportSize.width / viewportSize.height
+  const imageRatio: number = imageSize.width / imageSize.height
 
   // determs if the image orientation will be portrait or landscape
   // if landscape, fit the image by viewport's height
   const outputImageRatio: number =
     imageRatio < outputRatio
-      ? argv.width / argv.height
-      : (argv.width * 2) / argv.height
+      ? viewportSize.width / viewportSize.height
+      : (viewportSize.width * 2) / viewportSize.height
 
   return imageRatio > outputImageRatio
-    ? [argv.width, Math.round(argv.width / imageRatio)]
-    : [Math.round(argv.height * imageRatio), argv.height]
+    ? [viewportSize.width, Math.round(viewportSize.width / imageRatio)]
+    : [Math.round(viewportSize.height * imageRatio), viewportSize.height]
 }
 
 function sortImagesByName(prev: IResizedImage, next: IResizedImage): number {
@@ -153,8 +144,6 @@ function addImageToDoc(
   doc.addPage({ size })
   doc.image(buffer, 0, 0, { fit: size })
 }
-
-start()
 
 process.on('unhandledRejection', (err) => {
   throw err
