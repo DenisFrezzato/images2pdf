@@ -23,14 +23,12 @@ export default async function start({
   height,
   output,
 }: Arguments) {
-  const doc: PDFKit.PDFDocument = new PDFDocument({
+  const doc = new PDFDocument({
     autoFirstPage: false,
   })
-  const imagesDir: string = Path.resolve(imagesDirectory)
+  const imagesDir = Path.resolve(imagesDirectory)
 
-  const outputStream: fs.WriteStream = fs.createWriteStream(
-    Path.resolve(output),
-  )
+  const outputStream = fs.createWriteStream(Path.resolve(output))
   doc.pipe(outputStream)
 
   const docSpinner = ora('Creating document...')
@@ -40,7 +38,7 @@ export default async function start({
     process.exit()
   })
 
-  const images: ReadonlyArray<string> = await getImages(imagesDir)
+  const images = await getImages(imagesDir)
   const resizingImagesProgressBar = new ProgressBar(
     'Processing images [:bar] :current/:total',
     {
@@ -53,7 +51,7 @@ export default async function start({
     images,
     async (imagePath: string) => {
       const parentDirName = getParentDirName(imagePath)
-      const imageBuffer: Buffer = await fs.readFile(imagePath)
+      const imageBuffer = await fs.readFile(imagePath)
 
       return new Promise<IResizedImage>((resolve, reject) =>
         sharp(imageBuffer)
@@ -98,7 +96,7 @@ export default async function start({
 }
 
 async function getImages(imagesDir: string): Promise<ReadonlyArray<string>> {
-  const files: ReadonlyArray<string> = await recursive(imagesDir)
+  const files = await recursive(imagesDir)
 
   return files.filter(isImage)
 }
@@ -113,12 +111,12 @@ function calculateOutputImageSize(
   imageSize: sharp.OutputInfo,
   viewportSize: { width: number; height: number },
 ): Size {
-  const outputRatio: number = viewportSize.width / viewportSize.height
-  const imageRatio: number = imageSize.width / imageSize.height
+  const outputRatio = viewportSize.width / viewportSize.height
+  const imageRatio = imageSize.width / imageSize.height
 
   // determs if the image orientation will be portrait or landscape
   // if landscape, fit the image by viewport's height
-  const outputImageRatio: number =
+  const outputImageRatio =
     imageRatio < outputRatio
       ? viewportSize.width / viewportSize.height
       : (viewportSize.width * 2) / viewportSize.height
