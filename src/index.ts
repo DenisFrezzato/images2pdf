@@ -33,7 +33,7 @@ export default async function start({
 
   const docSpinner = ora('Creating document...')
 
-  output.on('close', () => {
+  outputStream.on('close', () => {
     docSpinner.succeed()
     process.exit()
   })
