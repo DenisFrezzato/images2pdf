@@ -21,12 +21,12 @@ import * as PDFDocument from 'pdfkit'
 import * as ProgressBar from 'progress'
 import { Arguments } from 'yargs'
 
-import * as ora from './fancy-console/ora'
-import * as progressBar from './fancy-console/progress'
+import * as ora from './fancyConsole/ora'
+import * as progressBar from './fancyConsole/progress'
 import * as fs from './fs'
 import * as img from './imageProcessing'
 import * as d from './pdfDocument'
-import { recursiveTE } from './recursive-readdir'
+import { recursiveTE } from './recursiveReaddir'
 
 export interface Size {
   width: number
