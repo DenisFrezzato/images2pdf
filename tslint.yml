@@ -10,9 +10,10 @@ extends:
 rules:
   no-console: false
   no-null-keyword: true
-  no-any: true
   no-var-keyword: true
   prettier: true
+  interface-name: false
   curly:
     - true
     - ignore-same-line
+  object-literal-sort-keys: false

@@ -1,154 +1,166 @@
-'use strict'
-
-import chalk from 'chalk'
-import * as fs from 'fs-extra'
-import * as isImage from 'is-image'
-import * as ora from 'ora'
+import { array, chunksOf, filter, flatten, last, sort } from 'fp-ts/lib/Array'
+import { left } from 'fp-ts/lib/Either'
+import { compose } from 'fp-ts/lib/function'
+import { IO, io } from 'fp-ts/lib/IO'
+import { Option } from 'fp-ts/lib/Option'
+import { contramap, Ord, ordString } from 'fp-ts/lib/Ord'
+import {
+  fromEither,
+  fromIO as tEFromIO,
+  TaskEither,
+  taskEither,
+  taskEitherSeq,
+} from 'fp-ts/lib/TaskEither'
+import { Tuple } from 'fp-ts/lib/Tuple'
+import { WriteStream } from 'fs'
+import isImage = require('is-image')
+import { Ora } from 'ora'
 import * as os from 'os'
-import * as pMap from 'p-map'
 import * as Path from 'path'
 import * as PDFDocument from 'pdfkit'
 import * as ProgressBar from 'progress'
-import * as recursive from 'recursive-readdir'
-import * as sharp from 'sharp'
 import { Arguments } from 'yargs'
-import { IResizedImage, Size } from './@types'
 
-const cpuCount: number = os.cpus().length
-const error = chalk.bold.red
+import * as ora from './fancy-console/ora'
+import * as progressBar from './fancy-console/progress'
+import * as fs from './fs'
+import * as img from './imageProcessing'
+import * as d from './pdfDocument'
+import { recursiveTE } from './recursive-readdir'
 
-export default async function start({
+export interface Size {
+  width: number
+  height: number
+}
+
+export interface ResizedImageBag {
+  name: string
+  buffer: Buffer
+  size: Size
+}
+
+const ioParallel = array.sequence(io)
+const tEParallel = array.sequence(taskEither)
+const tESeries = array.sequence(taskEitherSeq)
+
+const cpuCountIO: IO<number> = new IO(() => os.cpus()).map((_) => _.length)
+const exit: IO<void> = new IO(() => process.exit())
+
+const createProgressBar = (total: number) =>
+  progressBar.create('Processing images [:bar] :current/:total', {
+    total,
+    width: 17,
+  })
+
+const getImagePaths = (imagesDir: string): TaskEither<Error, string[]> =>
+  recursiveTE(imagesDir).map((files) => filter(files, isImage))
+
+const getParentDirName = (imagePath: string): Option<string> =>
+  last(Path.dirname(imagePath).split('/'))
+
+const ordImagesByName: Ord<ResizedImageBag> = contramap(
+  (image) => image.name.toLowerCase(),
+  ordString,
+)
+
+const processImage = (progressBarInstance: ProgressBar) => (
+  imagePath: string,
+  { width, height }: Size,
+): TaskEither<Error, ResizedImageBag> => {
+  const fileName = Path.parse(imagePath).name
+  const fullName = getParentDirName(imagePath).fold(
+    fileName,
+    (dirName) => dirName + fileName,
+  )
+  return fs
+    .readFile(imagePath)
+    .chain(img.trimImage)
+    .chain(
+      ({ fst: buffer, snd: info }): TaskEither<Error, ResizedImageBag> => {
+        const outputSize = img.calculateOutputImageSize(info, { width, height })
+        return img
+          .resizeImage(outputSize, buffer)
+          .chain(() =>
+            tEFromIO<Error, void>(progressBar.tick(progressBarInstance)).chain(
+              () => taskEither.of({ buffer, name: fullName, size: outputSize }),
+            ),
+          )
+      },
+    )
+}
+
+export function main({
   imagesDirectory,
   width,
   height,
   output,
-}: Arguments) {
-  const doc = new PDFDocument({
-    autoFirstPage: false,
-  })
+}: Arguments): TaskEither<Error, void> {
+  const doc = new PDFDocument({ autoFirstPage: false })
   const imagesDir = Path.resolve(imagesDirectory)
+  const outputSize: Size = { width, height }
+  return tEFromIO<Error, WriteStream>(
+    fs.createWriteStream(Path.resolve(output)).chain(d.pipeDoc(doc)),
+  ).chain((outputStream) =>
+    tEFromIO<Error, Ora>(ora.create('Creating document...')).chain(
+      (docSpinner) => {
+        outputStream.on('close', () =>
+          (docSpinner.isSpinning
+            ? ora.succeed(docSpinner, 'Done!').chain(() => exit)
+            : exit
+          ).run(),
+        )
 
-  const outputStream = fs.createWriteStream(Path.resolve(output))
-  doc.pipe(outputStream)
-
-  const docSpinner = ora('Creating document...')
-
-  outputStream.on('close', () => {
-    docSpinner.succeed()
-    process.exit()
-  })
-
-  const images = await getImages(imagesDir)
-  const resizingImagesProgressBar = new ProgressBar(
-    'Processing images [:bar] :current/:total',
-    {
-      total: images.length,
-      width: 17,
-    },
-  )
-
-  const resizingImagesPromises = pMap(
-    images,
-    async (imagePath: string) => {
-      const parentDirName = getParentDirName(imagePath)
-      const imageBuffer = await fs.readFile(imagePath)
-
-      return new Promise<IResizedImage>((resolve, reject) =>
-        sharp(imageBuffer)
-          .trim()
-          .toBuffer((err, trimmedImageBuffer, info) => {
-            if (err) return reject(err)
-
-            const name = parentDirName + Path.parse(imagePath).name
-            const newSize = calculateOutputImageSize(info, { width, height })
-
-            const resizeAndArchive = sharp(trimmedImageBuffer)
-              .resize(...newSize)
-              .png()
-              .toBuffer()
-              .then(
-                (buffer: Buffer): IResizedImage => {
-                  resizingImagesProgressBar.tick()
-
-                  return {
-                    buffer,
-                    name,
-                    size: newSize,
-                  }
-                },
+        return getImagePaths(imagesDir).chain((imagePaths) => {
+          return tEFromIO<Error, Tuple<number, ProgressBar>>(
+            cpuCountIO.chain((cpuCount) =>
+              createProgressBar(imagePaths.length).chain(
+                (progressBarInstance) =>
+                  io.of(new Tuple(cpuCount, progressBarInstance)),
+              ),
+            ),
+          )
+            .chain(({ fst: cpuCount, snd: progressBarInstance }) => {
+              const processImageWithProgressBar = processImage(
+                progressBarInstance,
               )
-
-            resolve(resizeAndArchive)
-          }),
-      )
-    },
-    { concurrency: cpuCount },
+              // Let's take advantage on multithreading by running the tasks asynchronously.
+              // The tasks are being chunked, each chunk runs in series, in order to bail out
+              //  as soon as a task fails.
+              return tESeries(
+                chunksOf(imagePaths, cpuCount).map((chunk) =>
+                  tEParallel(
+                    chunk.map((imagePath) =>
+                      processImageWithProgressBar(imagePath, outputSize),
+                    ),
+                  ),
+                ),
+              )
+            })
+            .map(
+              compose(
+                sort(ordImagesByName),
+                flatten,
+              ),
+            )
+            .chain((images) =>
+              tEFromIO(
+                ora
+                  .start(docSpinner)
+                  .chain(() => ioParallel(images.map(d.addImageToDoc(doc))))
+                  .chain(() => d.closeDoc(doc)),
+              ),
+            )
+            .foldTaskEither(
+              (err) =>
+                tEFromIO<Error, undefined>(
+                  ora
+                    .fail(docSpinner, err.message)
+                    .chain(() => io.of(undefined)),
+                ).chain(() => fromEither(left(err))),
+              () => taskEither.of(undefined),
+            )
+        })
+      },
+    ),
   )
-
-  await resizingImagesPromises.then((res: IResizedImage[]) => {
-    docSpinner.start()
-    res
-      .sort(sortImagesByName) // tslint:disable-line no-misleading-array-reverse
-      .forEach((resizedImage) => addImageToDoc(resizedImage, doc))
-  })
-
-  doc.end()
 }
-
-async function getImages(imagesDir: string): Promise<ReadonlyArray<string>> {
-  const files = await recursive(imagesDir)
-
-  return files.filter(isImage)
-}
-
-function getParentDirName(imagePath: string): string | undefined {
-  return Path.dirname(imagePath)
-    .split('/')
-    .pop()
-}
-
-function calculateOutputImageSize(
-  imageSize: sharp.OutputInfo,
-  viewportSize: { width: number; height: number },
-): Size {
-  const outputRatio = viewportSize.width / viewportSize.height
-  const imageRatio = imageSize.width / imageSize.height
-
-  // determs if the image orientation will be portrait or landscape
-  // if landscape, fit the image by viewport's height
-  const outputImageRatio =
-    imageRatio < outputRatio
-      ? viewportSize.width / viewportSize.height
-      : (viewportSize.width * 2) / viewportSize.height
-
-  return imageRatio > outputImageRatio
-    ? [viewportSize.width, Math.round(viewportSize.width / imageRatio)]
-    : [Math.round(viewportSize.height * imageRatio), viewportSize.height]
-}
-
-function sortImagesByName(prev: IResizedImage, next: IResizedImage): number {
-  const prevName = prev.name.toLowerCase()
-  const nextName = next.name.toLowerCase()
-
-  if (prevName < nextName) return -1
-  if (prevName > nextName) return 1
-  return 0
-}
-
-function addImageToDoc(
-  { buffer, size }: IResizedImage,
-  doc: PDFKit.PDFDocument,
-): void {
-  doc.addPage({ size })
-  doc.image(buffer, 0, 0, { fit: size })
-}
-
-process.on('unhandledRejection', (err) => {
-  throw err
-})
-
-process.on('uncaughtException', ({ message, stack }) => {
-  console.error(error(message))
-  console.error(stack)
-  process.exit(1)
-})

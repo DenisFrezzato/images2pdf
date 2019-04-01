@@ -3,7 +3,8 @@
 'use strict'
 
 import * as yargs from 'yargs'
-import images2PDFBook from '../src'
+
+import { main } from '../src'
 
 const argv = yargs
   .option('images-directory', {
@@ -24,4 +25,4 @@ const argv = yargs
   .coerce(['w', 'h'], Number)
   .demandOption(['images-directory', 'w', 'h', 'o']).argv
 
-images2PDFBook(argv)
+main(argv).run()
