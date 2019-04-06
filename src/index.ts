@@ -1,3 +1,4 @@
+import { sequenceT } from 'fp-ts/lib/Apply'
 import { array, chunksOf, filter, flatten, last, sort } from 'fp-ts/lib/Array'
 import { left } from 'fp-ts/lib/Either'
 import { compose } from 'fp-ts/lib/function'
@@ -11,7 +12,6 @@ import {
   taskEither,
   taskEitherSeq,
 } from 'fp-ts/lib/TaskEither'
-import { Tuple } from 'fp-ts/lib/Tuple'
 import { WriteStream } from 'fs'
 import isImage = require('is-image')
 import { Ora } from 'ora'
@@ -42,6 +42,7 @@ export interface ResizedImageBag {
 const ioParallel = array.sequence(io)
 const tEParallel = array.sequence(taskEither)
 const tESeries = array.sequence(taskEitherSeq)
+const sequenceTIo = sequenceT(io)
 
 const cpuCountIO: IO<number> = new IO(() => os.cpus()).map((_) => _.length)
 const exit: IO<void> = new IO(() => process.exit())
@@ -62,6 +63,17 @@ const ordImagesByName: Ord<ResizedImageBag> = contramap(
   (image) => image.name.toLowerCase(),
   ordString,
 )
+
+const initOutputAndCreateSpinner = <L>(
+  outputFile: string,
+  doc: PDFKit.PDFDocument,
+): TaskEither<L, [WriteStream, Ora]> =>
+  tEFromIO(
+    sequenceTIo(
+      fs.createWriteStream(Path.resolve(outputFile)).chain(d.pipeDoc(doc)),
+      ora.create('Creating document...'),
+    ),
+  )
 
 const processImage = (progressBarInstance: ProgressBar) => (
   imagePath: string,
@@ -88,6 +100,48 @@ const processImage = (progressBarInstance: ProgressBar) => (
       },
     )
 }
+const prepareImages = (
+  imagePaths: string[],
+  outputSize: Size,
+  cpuCount: number,
+  progressBarInstance: ProgressBar,
+): TaskEither<Error, ResizedImageBag[]> => {
+  const processImageWithProgressBar = processImage(progressBarInstance)
+  // Let's take advantage on multithreading by running the tasks asynchronously.
+  // The tasks are being chunked, each chunk runs in series, in order to bail out
+  // as soon as a task fails.
+  return tESeries(
+    chunksOf(imagePaths, cpuCount).map((chunk) =>
+      tEParallel(
+        chunk.map((imagePath) =>
+          processImageWithProgressBar(imagePath, outputSize),
+        ),
+      ),
+    ),
+  ).map(
+    compose(
+      sort(ordImagesByName),
+      flatten,
+    ),
+  )
+}
+
+const writeImagesToDocument = <L>(doc: PDFKit.PDFDocument, docSpinner: Ora) => (
+  images: ResizedImageBag[],
+): TaskEither<L, void> =>
+  tEFromIO(
+    ora
+      .start(docSpinner)
+      .chain(() => ioParallel(images.map(d.addImageToDoc(doc))))
+      .chain(() => d.closeDoc(doc)),
+  )
+
+const getCpuCountAndCreateProgressBar = <L>(
+  progressBarLength: number,
+): TaskEither<L, [number, ProgressBar]> =>
+  tEFromIO<L, [number, ProgressBar]>(
+    sequenceTIo(cpuCountIO, createProgressBar(progressBarLength)),
+  )
 
 export function main({
   imagesDirectory,
@@ -98,69 +152,35 @@ export function main({
   const doc = new PDFDocument({ autoFirstPage: false })
   const imagesDir = Path.resolve(imagesDirectory)
   const outputSize: Size = { width, height }
-  return tEFromIO<Error, WriteStream>(
-    fs.createWriteStream(Path.resolve(output)).chain(d.pipeDoc(doc)),
-  ).chain((outputStream) =>
-    tEFromIO<Error, Ora>(ora.create('Creating document...')).chain(
-      (docSpinner) => {
-        outputStream.on('close', () =>
-          (docSpinner.isSpinning
-            ? ora.succeed(docSpinner, 'Done!').chain(() => exit)
-            : exit
-          ).run(),
-        )
 
-        return getImagePaths(imagesDir).chain((imagePaths) => {
-          return tEFromIO<Error, Tuple<number, ProgressBar>>(
-            cpuCountIO.chain((cpuCount) =>
-              createProgressBar(imagePaths.length).chain(
-                (progressBarInstance) =>
-                  io.of(new Tuple(cpuCount, progressBarInstance)),
-              ),
+  return initOutputAndCreateSpinner<Error>(output, doc).chain(
+    ([outputStream, docSpinner]) => {
+      outputStream.on('close', () =>
+        (docSpinner.isSpinning
+          ? sequenceTIo(ora.succeed(docSpinner, 'Done!'), exit)
+          : exit
+        ).run(),
+      )
+
+      return getImagePaths(imagesDir).chain((imagePaths) =>
+        getCpuCountAndCreateProgressBar<Error>(imagePaths.length)
+          .chain(([cpuCount, progressBarInstance]) =>
+            prepareImages(
+              imagePaths,
+              outputSize,
+              cpuCount,
+              progressBarInstance,
             ),
           )
-            .chain(({ fst: cpuCount, snd: progressBarInstance }) => {
-              const processImageWithProgressBar = processImage(
-                progressBarInstance,
-              )
-              // Let's take advantage on multithreading by running the tasks asynchronously.
-              // The tasks are being chunked, each chunk runs in series, in order to bail out
-              //  as soon as a task fails.
-              return tESeries(
-                chunksOf(imagePaths, cpuCount).map((chunk) =>
-                  tEParallel(
-                    chunk.map((imagePath) =>
-                      processImageWithProgressBar(imagePath, outputSize),
-                    ),
-                  ),
-                ),
-              )
-            })
-            .map(
-              compose(
-                sort(ordImagesByName),
-                flatten,
-              ),
-            )
-            .chain((images) =>
-              tEFromIO(
-                ora
-                  .start(docSpinner)
-                  .chain(() => ioParallel(images.map(d.addImageToDoc(doc))))
-                  .chain(() => d.closeDoc(doc)),
-              ),
-            )
-            .foldTaskEither(
-              (err) =>
-                tEFromIO<Error, undefined>(
-                  ora
-                    .fail(docSpinner, err.message)
-                    .chain(() => io.of(undefined)),
-                ).chain(() => fromEither(left(err))),
-              () => taskEither.of(undefined),
-            )
-        })
-      },
-    ),
+          .chain(writeImagesToDocument(doc, docSpinner))
+          .foldTaskEither(
+            (err) =>
+              tEFromIO<Error, void>(
+                ora.fail(docSpinner, err.message).chain(() => io.of(undefined)),
+              ).chain(() => fromEither(left(err))),
+            () => taskEither.of(undefined),
+          ),
+      )
+    },
   )
 }
