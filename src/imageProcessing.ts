@@ -1,4 +1,4 @@
-import { left, right } from 'fp-ts/lib/Either'
+import { Either, left, right, tryCatch2v } from 'fp-ts/lib/Either'
 import { Task } from 'fp-ts/lib/Task'
 import { TaskEither } from 'fp-ts/lib/TaskEither'
 import { Tuple } from 'fp-ts/lib/Tuple'
@@ -40,27 +40,35 @@ export const trimImage = (
         new Promise((resolve) =>
           sharp(buffer)
             .trim()
-            .toBuffer(
-              (err, resizedBuffer, info) =>
-                err
-                  ? resolve(left(err))
-                  : resolve(right(new Tuple(resizedBuffer, info))),
+            .toBuffer((err, resizedBuffer, info) =>
+              err
+                ? resolve(left(err))
+                : resolve(right(new Tuple(resizedBuffer, info))),
             ),
         ),
     ),
   )
 
-export const resizeImage = (
+const sharpResize = (
   { width, height }: Size,
+  buffer: Buffer,
+): Either<Error, sharp.Sharp> =>
+  tryCatch2v(
+    () => sharp(buffer).resize(width, height),
+    (err) => (err instanceof Error ? err : new Error('Something went wrong.')),
+  )
+
+export const resizeImage = (
+  size: Size,
   buffer: Buffer,
 ): TaskEither<Error, Buffer> =>
   new TaskEither(
     new Task(() =>
-      sharp(buffer)
-        .resize(width, height)
-        .png()
-        .toBuffer()
-        .then(right)
-        .catch((err) => left(err)),
+      sharpResize(size, buffer)
+        .map((sharpInstance) => sharpInstance.png().toBuffer())
+        .fold(
+          (err) => Promise.resolve(left(err)),
+          (p) => p.then(right).catch((err) => left(err)),
+        ),
     ),
   )

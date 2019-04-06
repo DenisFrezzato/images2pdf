@@ -100,6 +100,7 @@ const processImage = (progressBarInstance: ProgressBar) => (
       },
     )
 }
+
 const prepareImages = (
   imagePaths: string[],
   outputSize: Size,
