@@ -1,6 +1,6 @@
 {
   "name": "images-to-pdf-book",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Create a PDF document from a bunch of images.",
   "keywords": [
     "comic-book",
