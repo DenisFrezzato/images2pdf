@@ -13,18 +13,19 @@ import {
   taskEitherSeq,
 } from 'fp-ts/lib/TaskEither'
 import { WriteStream } from 'fs'
+import { failure } from 'io-ts/lib/PathReporter'
 import isImage = require('is-image')
 import { Ora } from 'ora'
 import * as os from 'os'
 import * as Path from 'path'
 import * as PDFDocument from 'pdfkit'
 import * as ProgressBar from 'progress'
-import { Arguments } from 'yargs'
 
 import * as ora from './fancyConsole/ora'
 import * as progressBar from './fancyConsole/progress'
 import * as fs from './fs'
 import * as img from './imageProcessing'
+import { CLIArguments } from './models/CLIArguments'
 import * as d from './pdfDocument'
 import { recursiveTE } from './recursiveReaddir'
 
@@ -144,44 +145,47 @@ const getCpuCountAndCreateProgressBar = <L>(
     sequenceTIo(cpuCountIO, createProgressBar(progressBarLength)),
   )
 
-export function main({
-  imagesDirectory,
-  width,
-  height,
-  output,
-}: Arguments): TaskEither<Error, void> {
-  const doc = new PDFDocument({ autoFirstPage: false })
-  const imagesDir = Path.resolve(imagesDirectory)
-  const outputSize: Size = { width, height }
+export function main(cliArguments: unknown): TaskEither<Error, void> {
+  return fromEither(
+    CLIArguments.decode(cliArguments).mapLeft(
+      (errors) => new Error(failure(errors).join('\n')),
+    ),
+  ).chain(({ imagesDirectory, width, height, output }) => {
+    const doc = new PDFDocument({ autoFirstPage: false })
+    const imagesDir = Path.resolve(imagesDirectory)
+    const outputSize: Size = { width, height }
 
-  return initOutputAndCreateSpinner<Error>(output, doc).chain(
-    ([outputStream, docSpinner]) => {
-      outputStream.on('close', () =>
-        (docSpinner.isSpinning
-          ? sequenceTIo(ora.succeed(docSpinner, 'Done!'), exit)
-          : exit
-        ).run(),
-      )
+    return initOutputAndCreateSpinner<Error>(output, doc).chain(
+      ([outputStream, docSpinner]) => {
+        outputStream.on('close', () =>
+          (docSpinner.isSpinning
+            ? sequenceTIo(ora.succeed(docSpinner, 'Done!'), exit)
+            : exit
+          ).run(),
+        )
 
-      return getImagePaths(imagesDir).chain((imagePaths) =>
-        getCpuCountAndCreateProgressBar<Error>(imagePaths.length)
-          .chain(([cpuCount, progressBarInstance]) =>
-            prepareImages(
-              imagePaths,
-              outputSize,
-              cpuCount,
-              progressBarInstance,
+        return getImagePaths(imagesDir).chain((imagePaths) =>
+          getCpuCountAndCreateProgressBar<Error>(imagePaths.length)
+            .chain(([cpuCount, progressBarInstance]) =>
+              prepareImages(
+                imagePaths,
+                outputSize,
+                cpuCount,
+                progressBarInstance,
+              ),
+            )
+            .chain(writeImagesToDocument(doc, docSpinner))
+            .foldTaskEither(
+              (err) =>
+                tEFromIO<Error, void>(
+                  ora
+                    .fail(docSpinner, err.message)
+                    .chain(() => io.of(undefined)),
+                ).chain(() => fromEither(left(err))),
+              () => taskEither.of(undefined),
             ),
-          )
-          .chain(writeImagesToDocument(doc, docSpinner))
-          .foldTaskEither(
-            (err) =>
-              tEFromIO<Error, void>(
-                ora.fail(docSpinner, err.message).chain(() => io.of(undefined)),
-              ).chain(() => fromEither(left(err))),
-            () => taskEither.of(undefined),
-          ),
-      )
-    },
-  )
+        )
+      },
+    )
+  })
 }

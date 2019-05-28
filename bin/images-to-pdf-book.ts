@@ -22,7 +22,11 @@ const argv = yargs
     alias: 'o',
     describe: 'output file',
   })
-  .coerce(['w', 'h'], Number)
   .demandOption(['images-directory', 'w', 'h', 'o']).argv
 
-main(argv).run()
+main(argv)
+  .run()
+  .then((res) =>
+    // tslint:disable-next-line:no-console
+    res.fold(console.error, () => undefined),
+  )
