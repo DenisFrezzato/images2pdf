@@ -1,6 +1,0 @@
-src
-/bin
-.editorconfig
-.prettierrc.yml
-tsconfig.json
-tslint.yml
