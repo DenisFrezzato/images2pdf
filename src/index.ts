@@ -1,17 +1,11 @@
 import { sequenceT } from 'fp-ts/lib/Apply'
-import { array, chunksOf, filter, flatten, last, sort } from 'fp-ts/lib/Array'
+import { array, chunksOf, flatten, last, sort } from 'fp-ts/lib/Array'
 import { left } from 'fp-ts/lib/Either'
-import { compose } from 'fp-ts/lib/function'
+import { flow } from 'fp-ts/lib/function'
 import { IO, io } from 'fp-ts/lib/IO'
 import { Option } from 'fp-ts/lib/Option'
 import { contramap, Ord, ordString } from 'fp-ts/lib/Ord'
-import {
-  fromEither,
-  fromIO as tEFromIO,
-  TaskEither,
-  taskEither,
-  taskEitherSeq,
-} from 'fp-ts/lib/TaskEither'
+import * as TE from 'fp-ts/lib/TaskEither'
 import { WriteStream } from 'fs'
 import { failure } from 'io-ts/lib/PathReporter'
 import isImage = require('is-image')
@@ -41,8 +35,8 @@ export interface ResizedImageBag {
 }
 
 const ioParallel = array.sequence(io)
-const tEParallel = array.sequence(taskEither)
-const tESeries = array.sequence(taskEitherSeq)
+const tEParallel = array.sequence(TE.taskEither)
+const tESeries = array.sequence(TE.taskEitherSeq)
 const sequenceTIo = sequenceT(io)
 
 const cpuCountIO: IO<number> = new IO(() => os.cpus()).map((_) => _.length)
@@ -54,22 +48,21 @@ const createProgressBar = (total: number) =>
     width: 17,
   })
 
-const getImagePaths = (imagesDir: string): TaskEither<Error, string[]> =>
-  recursiveTE(imagesDir).map((files) => filter(files, isImage))
+const getImagePaths = (imagesDir: string): TE.TaskEither<Error, string[]> =>
+  recursiveTE(imagesDir).map((files) => files.filter(isImage))
 
 const getParentDirName = (imagePath: string): Option<string> =>
   last(Path.dirname(imagePath).split('/'))
 
 const ordImagesByName: Ord<ResizedImageBag> = contramap(
-  (image) => image.name.toLowerCase(),
-  ordString,
-)
+  (image: ResizedImageBag) => image.name.toLowerCase(),
+)(ordString)
 
 const initOutputAndCreateSpinner = <L>(
   outputFile: string,
   doc: PDFKit.PDFDocument,
-): TaskEither<L, [WriteStream, Ora]> =>
-  tEFromIO(
+): TE.TaskEither<L, [WriteStream, Ora]> =>
+  TE.rightIO(
     sequenceTIo(
       fs.createWriteStream(Path.resolve(outputFile)).chain(d.pipeDoc(doc)),
       ora.create('Creating document...'),
@@ -79,7 +72,7 @@ const initOutputAndCreateSpinner = <L>(
 const processImage = (progressBarInstance: ProgressBar) => (
   imagePath: string,
   { width, height }: Size,
-): TaskEither<Error, ResizedImageBag> => {
+): TE.TaskEither<Error, ResizedImageBag> => {
   const fileName = Path.parse(imagePath).name
   const fullName = getParentDirName(imagePath).fold(
     fileName,
@@ -89,49 +82,51 @@ const processImage = (progressBarInstance: ProgressBar) => (
     .readFile(imagePath)
     .chain(img.trimImage)
     .chain(
-      ({ fst: buffer, snd: info }): TaskEither<Error, ResizedImageBag> => {
+      ({ fst: buffer, snd: info }): TE.TaskEither<Error, ResizedImageBag> => {
         const outputSize = img.calculateOutputImageSize(info, { width, height })
         return img
           .resizeImage(outputSize, buffer)
           .chain(() =>
-            tEFromIO<Error, void>(progressBar.tick(progressBarInstance)).chain(
-              () => taskEither.of({ buffer, name: fullName, size: outputSize }),
+            TE.rightIO<Error, void>(
+              progressBar.tick(progressBarInstance),
+            ).chain(() =>
+              TE.taskEither.of({ buffer, name: fullName, size: outputSize }),
             ),
           )
       },
     )
 }
 
+const toSortedByName: (as: ResizedImageBag[][]) => ResizedImageBag[] = flow(
+  flatten,
+  sort(ordImagesByName),
+)
+
 const prepareImages = (
   imagePaths: string[],
   outputSize: Size,
   cpuCount: number,
   progressBarInstance: ProgressBar,
-): TaskEither<Error, ResizedImageBag[]> => {
+): TE.TaskEither<Error, ResizedImageBag[]> => {
   const processImageWithProgressBar = processImage(progressBarInstance)
   // Let's take advantage on multithreading by running the tasks asynchronously.
   // The tasks are being chunked, each chunk runs in series, in order to bail out
   // as soon as a task fails.
   return tESeries(
-    chunksOf(imagePaths, cpuCount).map((chunk) =>
+    chunksOf<string>(cpuCount)(imagePaths).map((chunk) =>
       tEParallel(
         chunk.map((imagePath) =>
           processImageWithProgressBar(imagePath, outputSize),
         ),
       ),
     ),
-  ).map(
-    compose(
-      sort(ordImagesByName),
-      flatten,
-    ),
-  )
+  ).map(toSortedByName)
 }
 
 const writeImagesToDocument = <L>(doc: PDFKit.PDFDocument, docSpinner: Ora) => (
   images: ResizedImageBag[],
-): TaskEither<L, void> =>
-  tEFromIO(
+): TE.TaskEither<L, void> =>
+  TE.rightIO(
     ora
       .start(docSpinner)
       .chain(() => ioParallel(images.map(d.addImageToDoc(doc))))
@@ -140,13 +135,13 @@ const writeImagesToDocument = <L>(doc: PDFKit.PDFDocument, docSpinner: Ora) => (
 
 const getCpuCountAndCreateProgressBar = <L>(
   progressBarLength: number,
-): TaskEither<L, [number, ProgressBar]> =>
-  tEFromIO<L, [number, ProgressBar]>(
+): TE.TaskEither<L, [number, ProgressBar]> =>
+  TE.rightIO<L, [number, ProgressBar]>(
     sequenceTIo(cpuCountIO, createProgressBar(progressBarLength)),
   )
 
-export function main(cliArguments: unknown): TaskEither<Error, void> {
-  return fromEither(
+export function main(cliArguments: unknown): TE.TaskEither<Error, void> {
+  return TE.fromEither(
     CLIArguments.decode(cliArguments).mapLeft(
       (errors) => new Error(failure(errors).join('\n')),
     ),
@@ -177,12 +172,12 @@ export function main(cliArguments: unknown): TaskEither<Error, void> {
             .chain(writeImagesToDocument(doc, docSpinner))
             .foldTaskEither(
               (err) =>
-                tEFromIO<Error, void>(
+                TE.rightIO<Error, void>(
                   ora
                     .fail(docSpinner, err.message)
                     .chain(() => io.of(undefined)),
-                ).chain(() => fromEither(left(err))),
-              () => taskEither.of(undefined),
+                ).chain(() => TE.fromEither(left(err))),
+              () => TE.taskEither.of(undefined),
             ),
         )
       },
