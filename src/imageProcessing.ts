@@ -1,7 +1,6 @@
-import { Either, left, right, tryCatch2v } from 'fp-ts/lib/Either'
-import { Task } from 'fp-ts/lib/Task'
-import { TaskEither } from 'fp-ts/lib/TaskEither'
-import { Tuple } from 'fp-ts/lib/Tuple'
+import * as E from 'fp-ts/lib/Either'
+import { pipe } from 'fp-ts/lib/pipeable'
+import * as TE from 'fp-ts/lib/TaskEither'
 import * as sharp from 'sharp'
 
 import { Size } from '.'
@@ -33,42 +32,30 @@ export const calculateOutputImageSize = (
 
 export const trimImage = (
   buffer: Buffer,
-): TaskEither<Error, Tuple<Buffer, sharp.OutputInfo>> =>
-  new TaskEither(
-    new Task(
-      () =>
-        new Promise((resolve) =>
-          sharp(buffer)
-            .trim()
-            .toBuffer((err, resizedBuffer, info) =>
-              err
-                ? resolve(left(err))
-                : resolve(right(new Tuple(resizedBuffer, info))),
-            ),
-        ),
-    ),
+): TE.TaskEither<Error, [Buffer, sharp.OutputInfo]> => () =>
+  new Promise((resolve) =>
+    sharp(buffer)
+      .trim()
+      .toBuffer((err, resizedBuffer, info) =>
+        err ? resolve(E.left(err)) : resolve(E.right([resizedBuffer, info])),
+      ),
   )
 
 const sharpResize = (
   { width, height }: Size,
   buffer: Buffer,
-): Either<Error, sharp.Sharp> =>
-  tryCatch2v(
-    () => sharp(buffer).resize(width, height),
-    (err) => (err instanceof Error ? err : new Error('Something went wrong.')),
-  )
+): E.Either<Error, sharp.Sharp> =>
+  E.tryCatch(() => sharp(buffer).resize(width, height), E.toError)
 
 export const resizeImage = (
   size: Size,
   buffer: Buffer,
-): TaskEither<Error, Buffer> =>
-  new TaskEither(
-    new Task(() =>
-      sharpResize(size, buffer)
-        .map((sharpInstance) => sharpInstance.png().toBuffer())
-        .fold(
-          (err) => Promise.resolve(left(err)),
-          (p) => p.then(right).catch((err) => left(err)),
-        ),
+): TE.TaskEither<Error, Buffer> => () =>
+  pipe(
+    sharpResize(size, buffer),
+    E.map((sharpInstance) => sharpInstance.png().toBuffer()),
+    E.fold(
+      (err) => Promise.resolve(E.left(err)),
+      (p) => p.then(E.right).catch((err) => E.left(err)),
     ),
   )

@@ -4,6 +4,8 @@
 
 import * as yargs from 'yargs'
 
+import { fold } from 'fp-ts/lib/Either'
+import { pipe } from 'fp-ts/lib/pipeable'
 import { main } from '../src'
 
 const argv = yargs
@@ -24,9 +26,10 @@ const argv = yargs
   })
   .demandOption(['images-directory', 'w', 'h', 'o']).argv
 
-main(argv)
-  .run()
-  .then((res) =>
+main(argv)().then((res) =>
+  pipe(
+    res,
     // tslint:disable-next-line:no-console
-    res.fold(console.error, () => undefined),
-  )
+    fold(console.error, () => undefined),
+  ),
+)
