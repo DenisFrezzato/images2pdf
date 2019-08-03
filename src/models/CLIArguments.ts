@@ -1,10 +1,9 @@
 import * as t from 'io-ts'
-import { IntFromString } from 'io-ts-types/lib/IntFromString'
 
 export const CLIArguments = t.type({
   imagesDirectory: t.string,
-  width: IntFromString,
-  height: IntFromString,
+  width: t.Int,
+  height: t.Int,
   output: t.string,
 })
 

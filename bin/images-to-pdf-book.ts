@@ -6,6 +6,7 @@ import * as yargs from 'yargs'
 
 import { fold } from 'fp-ts/lib/Either'
 import { pipe } from 'fp-ts/lib/pipeable'
+
 import { main } from '../src'
 
 const argv = yargs
