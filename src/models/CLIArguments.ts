@@ -1,10 +1,10 @@
-import * as t from 'io-ts'
+import * as D from 'io-ts/lib/Decoder'
+import { Natural } from './Natural'
 
-export const CLIArguments = t.type({
-  imagesDirectory: t.string,
-  width: t.Int,
-  height: t.Int,
-  output: t.string,
+export const CLIArguments = D.type({
+  imagesDirectory: D.string,
+  width: Natural,
+  height: Natural,
+  output: D.string,
 })
-
-export type CLIArguments = t.TypeOf<typeof CLIArguments>
+export interface CLIArguments extends D.TypeOf<typeof CLIArguments> {}

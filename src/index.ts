@@ -9,7 +9,7 @@ import { contramap, Ord, ordString } from 'fp-ts/lib/Ord'
 import { pipe } from 'fp-ts/lib/pipeable'
 import * as TE from 'fp-ts/lib/TaskEither'
 import { WriteStream } from 'fs'
-import { failure } from 'io-ts/lib/PathReporter'
+import { draw } from 'io-ts/lib/Tree'
 import isImage = require('is-image')
 import { Ora } from 'ora'
 import * as os from 'os'
@@ -149,7 +149,10 @@ const decodeArguments = (
   TE.fromEither(
     either.mapLeft(
       CLIArguments.decode(cliArguments),
-      (errors) => new Error(failure(errors).join('\n')),
+      flow(
+        draw,
+        (m) => new Error(m),
+      ),
     ),
   )
 
