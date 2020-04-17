@@ -29,10 +29,10 @@
     "io-ts": "^2.0.0",
     "is-image": "^3.0.0",
     "ora": "^3.4.0",
-    "pdfkit": "^0.9.1",
+    "pdfkit": "^0.11.0",
     "progress": "^2.0.3",
     "recursive-readdir": "^2.2.2",
-    "sharp": "^0.22.1",
+    "sharp": "^0.25.2",
     "yargs": "^13.3.0"
   },
   "devDependencies": {
@@ -45,7 +45,7 @@
     "@types/yargs": "^13.0.2",
     "husky": "^2.7.0",
     "prettier": "^1.18.2",
-    "tslint": "^5.18.0",
+    "tslint": "^5.20.1",
     "tslint-config-prettier": "^1.18.0",
     "tslint-config-standard": "^8.0.1",
     "tslint-plugin-prettier": "^2.0.1",
