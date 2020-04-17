@@ -5,7 +5,7 @@
 import * as yargs from 'yargs'
 
 import { fold } from 'fp-ts/lib/Either'
-import { pipe } from 'fp-ts/lib/pipeable'
+import { flow } from 'fp-ts/lib/function'
 
 import { main } from '../src'
 
@@ -27,9 +27,8 @@ const argv = yargs
   })
   .demandOption(['images-directory', 'w', 'h', 'o']).argv
 
-main(argv)().then((res) =>
-  pipe(
-    res,
+main(argv)().then(
+  flow(
     // tslint:disable-next-line:no-console
     fold(console.error, () => undefined),
   ),
