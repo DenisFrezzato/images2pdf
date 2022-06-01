@@ -32,7 +32,7 @@
     "pdfkit": "^0.11.0",
     "progress": "^2.0.3",
     "recursive-readdir": "^2.2.2",
-    "sharp": "^0.25.2",
+    "sharp": "^0.30.5",
     "yargs": "^13.3.0"
   },
   "devDependencies": {
